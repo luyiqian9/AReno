@@ -36,11 +36,12 @@ SYSTEM_PROMPT = (
 class SudokuServer(ThreadingHTTPServer):
     """Small stateful HTTP server for one Sudoku episode."""
 
-    def __init__(self, server_address, request_handler, *, seed: int, difficulty: str, base_url: str, api_key: str, model: str):
+    def __init__(self, server_address, request_handler, *, seed: int, difficulty: str, base_url: str, api_key: str, model: str, timeout: int = 120):
         super().__init__(server_address, request_handler)
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
+        self.timeout = timeout
         self._reset(seed, difficulty)
 
     def _reset(self, seed: int, difficulty: str) -> None:
@@ -169,8 +170,8 @@ def _agent_step(server: SudokuServer) -> dict[str, Any]:
     try:
         response = _llm_chat(server, turn_messages)
     except Exception as exc:
-        server.events.append(f"Error: {exc}")
-        server.terminal = True
+        server.action_num -= 1  # rollback — allow retry after restarting serve
+        server.events.append(f"Error: {exc}. Restart areno serve, then retry Step.")
         return _payload(server)
 
     assistant_message = _extract_assistant(response)
@@ -196,34 +197,41 @@ def _agent_step(server: SudokuServer) -> dict[str, Any]:
     return _payload(server)
 
 
-def _llm_chat(server: SudokuServer, messages: list[dict]) -> Any:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError("Web UI requires `openai`. Install it with `pip install openai`.") from exc
-    client = OpenAI(base_url=server.base_url, api_key=server.api_key, max_retries=0)
-    return client.chat.completions.create(
-        model=server.model,
-        messages=messages,
-        tools=game.TOOLS,
-        tool_choice="auto",
-        stream=False,
+def _llm_chat(server: SudokuServer, messages: list[dict]) -> dict:
+    """Send a chat completion request via requests (not the openai library)."""
+    import requests as _requests
+
+    resp = _requests.post(
+        f"{server.base_url}/chat/completions",
+        headers={"Authorization": f"Bearer {server.api_key}"},
+        json={
+            "model": server.model,
+            "messages": messages,
+            "tools": game.TOOLS,
+            "tool_choice": "auto",
+            "stream": False,
+        },
+        timeout=server.timeout,
     )
+    resp.raise_for_status()
+    return resp.json()
 
 
-def _extract_assistant(response: Any) -> dict:
-    message = response.choices[0].message
+def _extract_assistant(response_json: dict) -> dict:
+    """Parse a raw JSON chat completion response into an assistant message dict."""
+    message = response_json["choices"][0]["message"]
+    tool_calls = []
+    for call in (message.get("tool_calls") or []):
+        fn = call.get("function", {}) or {}
+        tool_calls.append({
+            "id": call.get("id", ""),
+            "type": call.get("type", "function"),
+            "function": {"name": fn.get("name", ""), "arguments": fn.get("arguments", "")},
+        })
     return {
         "role": "assistant",
-        "content": message.content,
-        "tool_calls": [
-            {
-                "id": call.id,
-                "type": call.type,
-                "function": {"name": call.function.name, "arguments": call.function.arguments},
-            }
-            for call in (message.tool_calls or [])
-        ],
+        "content": message.get("content"),
+        "tool_calls": tool_calls,
     }
 
 
@@ -462,6 +470,7 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:8001/v1")
     parser.add_argument("--api-key", default="token")
     parser.add_argument("--model", default="policy")
+    parser.add_argument("--timeout", type=int, default=120, help="Timeout (seconds) for LLM requests.")
     args = parser.parse_args()
 
     server = SudokuServer(
@@ -472,6 +481,7 @@ def main() -> None:
         base_url=args.base_url,
         api_key=args.api_key,
         model=args.model,
+        timeout=args.timeout,
     )
     print(f"Sudoku web UI on http://{args.host}:{args.port}")
     try:
