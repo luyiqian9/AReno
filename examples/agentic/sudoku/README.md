@@ -36,6 +36,8 @@ python examples/agentic/sudoku/dataset_generator.py \
 
 ## Train
 
+Standard single-node training:
+
 ```bash
 areno train \
   --ckpt Qwen/Qwen3-0.6B \
@@ -44,7 +46,31 @@ areno train \
   --reward-fn-path examples/agentic/sudoku/reward.py \
   --agent-fn examples/agentic/sudoku/run_agent.py \
   --algo gspo --tp-size 1 --world-size 2 \
-  --batch-size 1 --n-samples 2 --max-new-tokens 128
+  --batch-size 1 --n-samples 2 --max-new-tokens 128 \
+  --save-path /tmp/sudoku-ckpt --save-interval 50
+```
+
+Low-memory training (e.g. dual T4 on Kaggle, 15 GB per GPU):
+
+```bash
+# Small easy-difficulty dataset for faster episodes
+python examples/agentic/sudoku/dataset_generator.py \
+  --output /tmp/sudoku-easy.jsonl --count 16 --difficulty easy
+
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+areno train \
+  --ckpt Qwen/Qwen3-0.6B \
+  --dataset-path /tmp/sudoku-easy.jsonl \
+  --dataset-loader-fn examples/agentic/sudoku/dataset_loader.py \
+  --reward-fn-path examples/agentic/sudoku/reward.py \
+  --agent-fn examples/agentic/sudoku/run_agent.py \
+  --algo gspo --tp-size 2 --world-size 2 \
+  --attn-backend native --disable-thinking \
+  --batch-size 1 --n-samples 2 \
+  --mini-bs 1 --max-new-tokens 256 --max-prompt-tokens 512 \
+  --max-steps 50 --epochs 1 \
+  --save-path /tmp/sudoku-ckpt --save-interval 10 \
+  --activation-checkpointing
 ```
 
 ## Reward design
