@@ -490,3 +490,75 @@ def test_agent_episode_stops_on_no_tool_call():
     client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
     turns = asyncio.run(run_agent._run_episode(item, client))
     assert len(turns) == 1
+
+
+# -- Malformed input safety -------------------------------------------------
+
+def test_safe_int_handles_garbage():
+    game = _load_module("game")
+    assert game.safe_int(5) == 5
+    assert game.safe_int("7") == 7
+    assert game.safe_int("not-an-int") == 0
+    assert game.safe_int(None) == 0
+    assert game.safe_int("abc", default=-1) == -1
+    assert game.safe_int(3.7) == 3
+
+
+def test_replay_malformed_place_digit_does_not_crash():
+    game = _load_module("game")
+    puzzle, solution = game.generate_board("easy", seed=60)
+    empty = [(r, c) for r in range(9) for c in range(9) if puzzle[r][c] == 0]
+    budget = len(empty) * 2
+    # non-integer row, missing digit, string col
+    actions = [
+        {"name": "place_digit", "arguments": {"row": "garbage", "col": 1, "digit": 5}},
+        {"name": "place_digit", "arguments": {"row": 1, "col": "nope", "digit": 5}},
+        {"name": "place_digit", "arguments": {"row": 1, "col": 1}},
+    ]
+    stats = game.replay_episode(puzzle, solution, actions, budget)
+    # malformed params → safe_int returns 0 → validate_placement rejects → counted as invalid
+    assert stats["invalid_actions"] == 3
+    assert stats["correct_fills"] == 0
+
+
+def test_replay_inspect_validates_like_real_environment():
+    """replay_episode must count invalid inspect_candidates the same way
+    the real environment (_execute_tool in run_agent) does."""
+    game = _load_module("game")
+    puzzle, solution = game.generate_board("easy", seed=61)
+    empty = [(r, c) for r in range(9) for c in range(9) if puzzle[r][c] == 0]
+    budget = len(empty) * 2
+
+    # Find a clue cell and an empty cell
+    clue_cell = next((r, c) for r in range(9) for c in range(9) if puzzle[r][c] != 0)
+    empty_cell = empty[0]
+
+    actions = [
+        # inspect a clue → invalid in real env, must be invalid in replay
+        {"name": "inspect_candidates", "arguments": {"row": clue_cell[0] + 1, "col": clue_cell[1] + 1}},
+        # inspect out-of-range → invalid
+        {"name": "inspect_candidates", "arguments": {"row": 99, "col": 99}},
+        # inspect a valid empty cell → valid, should NOT count as invalid
+        {"name": "inspect_candidates", "arguments": {"row": empty_cell[0] + 1, "col": empty_cell[1] + 1}},
+        # inspect with garbage params → invalid
+        {"name": "inspect_candidates", "arguments": {"row": "x", "col": "y"}},
+    ]
+    stats = game.replay_episode(puzzle, solution, actions, budget)
+    # 3 invalid (clue, out-of-range, garbage), 1 valid (empty cell)
+    assert stats["invalid_actions"] == 3
+    assert stats["correct_fills"] == 0
+
+
+def test_replay_inspect_and_reward_consistency():
+    """If an episode has only invalid inspect calls, reward should be negative."""
+    game = _load_module("game")
+    puzzle, solution = game.generate_board("easy", seed=62)
+    empty = [(r, c) for r in range(9) for c in range(9) if puzzle[r][c] == 0]
+    budget = len(empty) * 2
+    actions = [
+        {"name": "inspect_candidates", "arguments": {"row": 99, "col": 99}},
+        {"name": "inspect_candidates", "arguments": {"row": 99, "col": 99}},
+    ]
+    score = game.score_episode(puzzle, solution, actions, budget)
+    # no valid actions and invalid_actions > 0 → -1.0
+    assert score == -1.0

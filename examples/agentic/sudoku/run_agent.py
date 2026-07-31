@@ -12,7 +12,7 @@ from pathlib import Path
 from areno.api.agentic import AgentTrajectory, AgentTrajectoryTurn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from game import TOOLS, get_candidates, is_complete, validate_placement  # noqa: E402
+from game import TOOLS, get_candidates, is_complete, safe_int, validate_placement  # noqa: E402
 
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -146,8 +146,8 @@ def _execute_tool(assistant_message: dict, board, puzzle, history) -> dict | Non
         return None
 
     if name == "inspect_candidates":
-        row = int(arguments.get("row", 0)) - 1
-        col = int(arguments.get("col", 0)) - 1
+        row = safe_int(arguments.get("row")) - 1
+        col = safe_int(arguments.get("col")) - 1
         if not (0 <= row < 9 and 0 <= col < 9):
             return {"valid": False, "error": "row and col must be in 1..9"}
         if puzzle[row][col] != 0:
@@ -157,9 +157,9 @@ def _execute_tool(assistant_message: dict, board, puzzle, history) -> dict | Non
         return {"valid": True, "candidates": get_candidates(board, row, col)}
 
     if name == "place_digit":
-        row = int(arguments.get("row", 0)) - 1
-        col = int(arguments.get("col", 0)) - 1
-        digit = int(arguments.get("digit", 0))
+        row = safe_int(arguments.get("row")) - 1
+        col = safe_int(arguments.get("col")) - 1
+        digit = safe_int(arguments.get("digit"))
         result = validate_placement(board, puzzle, row, col, digit)
         if result["valid"]:
             board[row][col] = digit

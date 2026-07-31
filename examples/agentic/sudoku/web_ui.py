@@ -249,8 +249,8 @@ def _execute_tool(assistant_message: dict, server: SudokuServer) -> dict | None:
         return None
 
     if name == "inspect_candidates":
-        row = int(arguments.get("row", 0)) - 1
-        col = int(arguments.get("col", 0)) - 1
+        row = game.safe_int(arguments.get("row")) - 1
+        col = game.safe_int(arguments.get("col")) - 1
         if not (0 <= row < 9 and 0 <= col < 9):
             return {"valid": False, "error": "row and col must be 1..9"}
         if server.puzzle[row][col] != 0:
@@ -260,9 +260,9 @@ def _execute_tool(assistant_message: dict, server: SudokuServer) -> dict | None:
         return {"valid": True, "candidates": game.get_candidates(server.board, row, col)}
 
     if name == "place_digit":
-        row = int(arguments.get("row", 0)) - 1
-        col = int(arguments.get("col", 0)) - 1
-        digit = int(arguments.get("digit", 0))
+        row = game.safe_int(arguments.get("row")) - 1
+        col = game.safe_int(arguments.get("col")) - 1
+        digit = game.safe_int(arguments.get("digit"))
         result = game.validate_placement(server.board, server.puzzle, row, col, digit)
         if result["valid"]:
             server.board[row][col] = digit

@@ -117,8 +117,8 @@ def _execute_tool(name, args, board, puzzle, history):
     }
 
     if name == "inspect_candidates":
-        row = int(args.get("row", 0)) - 1
-        col = int(args.get("col", 0)) - 1
+        row = game.safe_int(args.get("row")) - 1
+        col = game.safe_int(args.get("col")) - 1
         if not (0 <= row < 9 and 0 <= col < 9):
             return {"valid": False, "error": "row/col out of range"}, assistant_msg
         if puzzle[row][col] != 0:
@@ -128,9 +128,9 @@ def _execute_tool(name, args, board, puzzle, history):
         return {"valid": True, "candidates": game.get_candidates(board, row, col)}, assistant_msg
 
     if name == "place_digit":
-        row = int(args.get("row", 0)) - 1
-        col = int(args.get("col", 0)) - 1
-        digit = int(args.get("digit", 0))
+        row = game.safe_int(args.get("row")) - 1
+        col = game.safe_int(args.get("col")) - 1
+        digit = game.safe_int(args.get("digit"))
         result = game.validate_placement(board, puzzle, row, col, digit)
         if result["valid"]:
             board[row][col] = digit

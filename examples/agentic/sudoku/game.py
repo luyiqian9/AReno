@@ -97,6 +97,16 @@ TOOLS = [INSPECT_TOOL, PLACE_TOOL, UNDO_TOOL]
 TOOL_BY_NAME = {tool["function"]["name"]: tool for tool in TOOLS}
 
 
+# -- Safe parsing -----------------------------------------------------------
+
+def safe_int(value: Any, default: int = 0) -> int:
+    """Convert *value* to int, returning *default* on failure."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 # -- Board helpers (0-indexed internally) ------------------------------------
 
 def _is_valid(board: list[list[int]], row: int, col: int, digit: int) -> bool:
@@ -309,9 +319,9 @@ def replay_episode(
             continue
 
         if name == "place_digit":
-            row = int(args.get("row", 0)) - 1
-            col = int(args.get("col", 0)) - 1
-            digit = int(args.get("digit", 0))
+            row = safe_int(args.get("row")) - 1
+            col = safe_int(args.get("col")) - 1
+            digit = safe_int(args.get("digit"))
             result = validate_placement(board, puzzle, row, col, digit)
             if result["valid"]:
                 board[row][col] = digit
@@ -325,7 +335,15 @@ def replay_episode(
             else:
                 invalid_count += 1
         elif name == "inspect_candidates":
-            pass  # informational -- no board change
+            row = safe_int(args.get("row")) - 1
+            col = safe_int(args.get("col")) - 1
+            if not (0 <= row < 9 and 0 <= col < 9):
+                invalid_count += 1
+            elif puzzle[row][col] != 0:
+                invalid_count += 1
+            elif board[row][col] != 0:
+                invalid_count += 1
+            # valid inspect: no board change, not invalid
         else:
             invalid_count += 1
 
