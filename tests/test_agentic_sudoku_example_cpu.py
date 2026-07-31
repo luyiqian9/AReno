@@ -15,9 +15,22 @@ EXAMPLE_DIR = Path(__file__).resolve().parents[1] / "examples" / "agentic" / "su
 
 
 def _load_module(name: str):
-    """Load an example module, handling 'game' name collisions via sys.path."""
+    """Load an example module, handling 'game' name collisions via sys.path.
+
+    When loading *run_agent* we also stub ``areno.api.agentic`` so that
+    ``AgentTrajectoryTurn`` does not validate Areno response metadata
+    (the real class requires ``response_tokens`` / ``response_logprobs``
+    which fake test responses do not carry).  This mirrors the pattern
+    used by the Codebreaker and Shopping example tests.
+    """
     path = EXAMPLE_DIR / f"{name}.py"
     previous_game = sys.modules.pop("game", None)
+    previous_agentic = sys.modules.get("areno.api.agentic")
+    if name == "run_agent":
+        sys.modules["areno.api.agentic"] = SimpleNamespace(
+            AgentTrajectory=type("AgentTrajectory", (), {}),
+            AgentTrajectoryTurn=lambda **kwargs: SimpleNamespace(**kwargs),
+        )
     sys.path.insert(0, str(EXAMPLE_DIR))
     try:
         spec = importlib.util.spec_from_file_location(
@@ -31,6 +44,10 @@ def _load_module(name: str):
         sys.modules.pop("game", None)
         if previous_game is not None:
             sys.modules["game"] = previous_game
+        if name == "run_agent":
+            sys.modules.pop("areno.api.agentic", None)
+            if previous_agentic is not None:
+                sys.modules["areno.api.agentic"] = previous_agentic
 
 
 # -- Board generation ------------------------------------------------------
